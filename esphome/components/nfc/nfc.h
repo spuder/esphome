@@ -28,7 +28,15 @@ static const uint8_t TAG_TYPE_1 = 1;
 static const uint8_t TAG_TYPE_2 = 2;
 static const uint8_t TAG_TYPE_3 = 3;
 static const uint8_t TAG_TYPE_4 = 4;
+static const uint8_t TAG_TYPE_NTAG_213 = 5;
+static const uint8_t TAG_TYPE_NTAG_215 = 6;
+static const uint8_t TAG_TYPE_NTAG_216 = 7;
 static const uint8_t TAG_TYPE_UNKNOWN = 99;
+
+static const uint8_t NTAG_PAGE_SIZE = 4;
+static const uint8_t NTAG_213_MAX_PAGE = 45;   // NTAG213 has 180 bytes of memory (45 pages * 4 bytes per page)
+static const uint8_t NTAG_215_MAX_PAGE = 135;  // NTAG215 has 540 bytes of memory (135 pages * 4 bytes per page)
+static const uint8_t NTAG_216_MAX_PAGE = 231;  // NTAG216 has 924 bytes of memory (231 pages * 4 bytes per page)
 
 // Mifare Commands
 static const uint8_t MIFARE_CMD_AUTH_A = 0x60;
@@ -56,7 +64,8 @@ static const uint8_t MAD_KEY[6] = {0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5};
 std::string format_uid(std::vector<uint8_t> &uid);
 std::string format_bytes(std::vector<uint8_t> &bytes);
 
-uint8_t guess_tag_type(uint8_t uid_length);
+// uint8_t guess_tag_type(uint8_t uid_length);//TODO: deprecate guess_tag_type
+uint8_t guess_tag_type(uint8_t uid_length, const std::vector<uint8_t> &first_page);
 uint8_t get_mifare_classic_ndef_start_index(std::vector<uint8_t> &data);
 bool decode_mifare_classic_tlv(std::vector<uint8_t> &data, uint32_t &message_length, uint8_t &message_start_index);
 uint32_t get_mifare_classic_buffer_size(uint32_t message_length);
@@ -65,6 +74,10 @@ bool mifare_classic_is_first_block(uint8_t block_num);
 bool mifare_classic_is_trailer_block(uint8_t block_num);
 
 uint32_t get_mifare_ultralight_buffer_size(uint32_t message_length);
+
+bool is_ntag(const std::vector<uint8_t> &first_page);
+uint32_t get_ntag_buffer_size(uint32_t message_length);
+bool decode_ntag_tlv(const std::vector<uint8_t> &data, uint32_t &message_length, uint8_t &message_start_index);
 
 class NfcTagListener {
  public:

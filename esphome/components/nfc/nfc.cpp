@@ -31,11 +31,36 @@ std::string format_bytes(std::vector<uint8_t> &bytes) {
   return std::string(buf);
 }
 
-uint8_t guess_tag_type(uint8_t uid_length) {
+uint8_t is_ntag(const std::vector<uint8_t> &first_page) {
+  // NTAG typically has a capability container (CC) starting at byte 3
+  // The CC for NTAG is usually 0xE1 0x10 followed by a type-specific byte
+  if (first_page.size() >= 16 && first_page[3] == 0xE1 && first_page[4] == 0x10) {
+    switch (first_page[5]) {
+      case 0x11:
+        return TAG_TYPE_NTAG_213;
+      case 0x12:
+        return TAG_TYPE_NTAG_215;
+      case 0x13:
+        return TAG_TYPE_NTAG_216;
+      default:
+        return TAG_TYPE_UNKNOWN;
+    }
+  }
+  return TAG_TYPE_UNKNOWN;
+}
+
+uint8_t guess_tag_type(uint8_t uid_length, const std::vector<uint8_t> &first_page) {
   if (uid_length == 4) {
     return TAG_TYPE_MIFARE_CLASSIC;
+  } else if (uid_length == 7) {
+    uint8_t ntag_type = is_ntag(first_page);
+    if (ntag_type != TAG_TYPE_UNKNOWN) {
+      return ntag_type;
+    } else {
+      return TAG_TYPE_2;  // Could be MIFARE Ultralight or other Type 2 tag
+    }
   } else {
-    return TAG_TYPE_2;
+    return TAG_TYPE_UNKNOWN;
   }
 }
 
