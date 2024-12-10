@@ -384,9 +384,9 @@ bool PN532::ntag2xx_read_page(uint8_t page_number, std::vector<uint8_t> &data) {
 std::unique_ptr<nfc::NfcTag> PN532::read_tag_(std::vector<uint8_t> &uid) {
   std::vector<uint8_t> first_page(16);  // 4 pages, 4 bytes each
   for (uint8_t i = 0; i < 4; i++) {
-    uint8_t page_data[4];
+    std::vector<uint8_t> page_data(4);
     if (this->ntag2xx_read_page(i, page_data)) {
-      std::copy(page_data, page_data + 4, first_page.begin() + i * 4);
+      first_page.insert(first_page.begin() + i * 4, page_data.begin(), page_data.end());
     } else {
       ESP_LOGE(TAG, "Failed to read page %d", i);
       return make_unique<nfc::NfcTag>(uid);
@@ -416,6 +416,63 @@ std::unique_ptr<nfc::NfcTag> PN532::read_tag_(std::vector<uint8_t> &uid) {
       ESP_LOGV(TAG, "Cannot determine tag type");
       return make_unique<nfc::NfcTag>(uid);
   }
+}
+
+std::unique_ptr<nfc::NfcTag> PN532::read_ntag_tag_(std::vector<uint8_t> &uid, uint8_t tag_type) {
+  std::vector<uint8_t> data(4);
+  uint8_t max_page;
+
+  switch (tag_type) {
+    case nfc::TAG_TYPE_NTAG_213:
+      max_page = 39;
+      break;
+    case nfc::TAG_TYPE_NTAG_215:
+      max_page = 129;
+      break;
+    case nfc::TAG_TYPE_NTAG_216:
+      max_page = 225;
+      break;
+    default:
+      ESP_LOGE(TAG, "Unknown NTAG type");
+      return nullptr;
+  }
+
+  std::vector<uint8_t> tag_data;
+  for (uint8_t page = 4; page <= max_page; page++) {
+    if (!this->ntag2xx_read_page(page, data)) {
+      ESP_LOGE(TAG, "Failed to read page %d", page);
+      return nullptr;
+    }
+    tag_data.insert(tag_data.end(), data.begin(), data.end());
+  }
+
+  return make_unique<nfc::NfcTag>(uid, tag_data, tag_type);
+}
+
+bool PN532::ntag2xx_read_page(uint8_t page, std::vector<uint8_t> &data) {
+  std::vector<uint8_t> command = {
+      PN532_COMMAND_INDATAEXCHANGE,
+      0x01,  // Card number
+      0x30,  // MIFARE Read command
+      page   // Page to read
+  };
+
+  if (!this->write_command_(command)) {
+    ESP_LOGE(TAG, "Error writing read command");
+    return false;
+  }
+
+  std::vector<uint8_t> response;
+  if (!this->read_response(PN532_COMMAND_INDATAEXCHANGE, response)) {
+    ESP_LOGE(TAG, "Error reading page data");
+    return false;
+  }
+
+  // Remove status byte
+  response.erase(response.begin());
+  data = response;
+
+  return true;
 }
 
 void PN532::read_mode() {

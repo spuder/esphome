@@ -70,6 +70,7 @@ class PN532 : public PollingComponent {
   virtual bool read_response(uint8_t command, std::vector<uint8_t> &data) = 0;
 
   std::unique_ptr<nfc::NfcTag> read_tag_(std::vector<uint8_t> &uid);
+  std::unique_ptr<nfc::NfcTag> PN532::read_ntag_tag_(std::vector<uint8_t> &uid, uint8_t tag_type);
 
   bool format_tag_(std::vector<uint8_t> &uid);
   bool clean_tag_(std::vector<uint8_t> &uid);
