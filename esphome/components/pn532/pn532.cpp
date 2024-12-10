@@ -494,7 +494,13 @@ void PN532::write_mode(nfc::NdefMessage *message) {
 }
 
 bool PN532::clean_tag_(std::vector<uint8_t> &uid) {
-  uint8_t type = nfc::guess_tag_type(uid.size());
+  std::vector<uint8_t> first_page(16);
+  if (!this->ntag2xx_read_page(4, first_page)) {
+    ESP_LOGE(TAG, "Failed to read first page");
+    return false;
+  }
+
+  uint8_t type = nfc::guess_tag_type(uid.size(), first_page);
   if (type == nfc::TAG_TYPE_MIFARE_CLASSIC) {
     return this->format_mifare_classic_mifare_(uid);
   } else if (type == nfc::TAG_TYPE_2) {
