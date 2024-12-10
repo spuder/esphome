@@ -31,7 +31,7 @@ std::string format_bytes(std::vector<uint8_t> &bytes) {
   return std::string(buf);
 }
 
-uint8_t is_ntag(const std::vector<uint8_t> &first_page) {
+bool is_ntag(const std::vector<uint8_t> &first_page) {
   // NTAG typically has a capability container (CC) starting at byte 3
   // The CC for NTAG is usually 0xE1 0x10 followed by a type-specific byte
   if (first_page.size() >= 16 && first_page[3] == 0xE1 && first_page[4] == 0x10) {
