@@ -357,20 +357,64 @@ void PN532::turn_off_rf_() {
   });
 }
 
-std::unique_ptr<nfc::NfcTag> PN532::read_tag_(std::vector<uint8_t> &uid) {
-  uint8_t type = nfc::guess_tag_type(uid.size());
+bool PN532::ntag2xx_read_page(uint8_t page_number, std::vector<uint8_t> &data) {
+  std::vector<uint8_t> command = {
+      PN532_COMMAND_INDATAEXCHANGE,
+      0x01,        // Card number
+      0x30,        // MIFARE Read command
+      page_number  // Page to read
+  };
 
-  if (type == nfc::TAG_TYPE_MIFARE_CLASSIC) {
-    ESP_LOGD(TAG, "Mifare classic");
-    return this->read_mifare_classic_tag_(uid);
-  } else if (type == nfc::TAG_TYPE_2) {
-    ESP_LOGD(TAG, "Mifare ultralight");
-    return this->read_mifare_ultralight_tag_(uid);
-  } else if (type == nfc::TAG_TYPE_UNKNOWN) {
-    ESP_LOGV(TAG, "Cannot determine tag type");
-    return make_unique<nfc::NfcTag>(uid);
-  } else {
-    return make_unique<nfc::NfcTag>(uid);
+  if (!this->write_command_(command)) {
+    ESP_LOGE(TAG, "Error writing read command");
+    return false;
+  }
+
+  if (!this->read_response(PN532_COMMAND_INDATAEXCHANGE, data)) {
+    ESP_LOGE(TAG, "Error reading page data");
+    return false;
+  }
+
+  // Remove status byte
+  data.erase(data.begin());
+
+  return true;
+}
+
+std::unique_ptr<nfc::NfcTag> PN532::read_tag_(std::vector<uint8_t> &uid) {
+  std::vector<uint8_t> first_page(16);  // 4 pages, 4 bytes each
+  for (uint8_t i = 0; i < 4; i++) {
+    uint8_t page_data[4];
+    if (this->ntag2xx_read_page(i, page_data)) {
+      std::copy(page_data, page_data + 4, first_page.begin() + i * 4);
+    } else {
+      ESP_LOGE(TAG, "Failed to read page %d", i);
+      return make_unique<nfc::NfcTag>(uid);
+    }
+  }
+
+  uint8_t type = nfc::guess_tag_type(uid.size(), first_page);
+
+  switch (type) {
+    case nfc::TAG_TYPE_MIFARE_CLASSIC:
+      ESP_LOGD(TAG, "Mifare classic");
+      return this->read_mifare_classic_tag_(uid);
+    case nfc::TAG_TYPE_2:
+      ESP_LOGD(TAG, "Mifare ultralight");
+      return this->read_mifare_ultralight_tag_(uid);
+    case nfc::TAG_TYPE_NTAG_213:
+      ESP_LOGD(TAG, "NTAG213");
+      return this->read_ntag_tag_(uid, nfc::TAG_TYPE_NTAG_213);
+    case nfc::TAG_TYPE_NTAG_215:
+      ESP_LOGD(TAG, "NTAG215");
+      return this->read_ntag_tag_(uid, nfc::TAG_TYPE_NTAG_215);
+    case nfc::TAG_TYPE_NTAG_216:
+      ESP_LOGD(TAG, "NTAG216");
+      return this->read_ntag_tag_(uid, nfc::TAG_TYPE_NTAG_216);
+    case nfc::TAG_TYPE_UNKNOWN:
+    default:
+      ESP_LOGV(TAG, "Cannot determine tag type");
+      return make_unique<nfc::NfcTag>(uid);
   }
 }
 
