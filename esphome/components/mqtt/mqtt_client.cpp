@@ -52,22 +52,22 @@ void MQTTClientComponent::setup() {
   ESP_LOGCONFIG(TAG, "Running setup");
   this->mqtt_backend_.set_on_message(
       [this](const char *topic, const char *payload, size_t len, size_t index, size_t total) {
-        // Validate input parameters
+        // Validate input parameters - check for null topic pointer
         if (topic == nullptr) {
           ESP_LOGE(TAG, "Received MQTT message with null topic pointer");
           return;
         }
 
-        // Additional safety check - ensure topic string is readable
-        size_t topic_len;
+        // Create topic string safely - the backend now ensures topic pointer is valid
+        std::string topic_str;
         try {
-          topic_len = strlen(topic);
-        } catch (...) {
-          ESP_LOGE(TAG, "Topic pointer is invalid - cannot read string length");
+          topic_str = topic;  // Safe now that backend manages topic string lifetime
+        } catch (const std::exception &e) {
+          ESP_LOGE(TAG, "Failed to create topic string: %s", e.what());
           return;
         }
 
-        if (topic_len == 0) {
+        if (topic_str.empty()) {
           ESP_LOGW(TAG, "Received MQTT message with empty topic string");
           return;
         }
@@ -92,20 +92,6 @@ void MQTTClientComponent::setup() {
 
         // MQTT fully received
         if (len + index == total) {
-          // Create string safely from topic - double-check before string construction
-          if (topic == nullptr) {
-            ESP_LOGE(TAG, "Topic pointer became null before calling on_message");
-            return;
-          }
-
-          std::string topic_str;
-          try {
-            topic_str.assign(topic, topic_len);  // Use assign with known length to be safer
-          } catch (const std::exception &e) {
-            ESP_LOGE(TAG, "Failed to construct topic string: %s", e.what());
-            return;
-          }
-
           this->on_message(topic_str, this->payload_buffer_);
           this->payload_buffer_.clear();
         }

@@ -151,13 +151,31 @@ void MQTTBackendESP32::mqtt_event_handler_(const Event &event) {
       this->on_publish_.call((int) event.msg_id);
       break;
     case MQTT_EVENT_DATA: {
-      static std::string topic;
+      // Handle chunked messages properly by maintaining topic string across chunks
+      // For chunked messages, we need to keep the same topic string alive until
+      // the complete message is processed (when current_data_offset + data_len == total_data_len)
+
+      const char *topic_ptr = nullptr;
+
       if (!event.topic.empty()) {
-        topic = event.topic;
+        // New message or first chunk - update our stored topic string
+        this->current_topic_string_ = event.topic;
+        topic_ptr = this->current_topic_string_.c_str();
+      } else if (!this->current_topic_string_.empty()) {
+        // Continuation chunk - use the stored topic string from first chunk
+        topic_ptr = this->current_topic_string_.c_str();
       }
-      ESP_LOGV(TAG, "MQTT_EVENT_DATA %s", topic.c_str());
-      this->on_message_.call(!event.topic.empty() ? topic.c_str() : nullptr, event.data.data(), event.data.size(),
-                             event.current_data_offset, event.total_data_len);
+
+      ESP_LOGV(TAG, "MQTT_EVENT_DATA %s (chunk %d/%d)", topic_ptr ? topic_ptr : "(null)",
+               event.current_data_offset + event.data.size(), event.total_data_len);
+
+      this->on_message_.call(topic_ptr, event.data.data(), event.data.size(), event.current_data_offset,
+                             event.total_data_len);
+
+      // Clear the stored topic string after the complete message is processed
+      if (event.current_data_offset + event.data.size() >= event.total_data_len) {
+        this->current_topic_string_.clear();
+      }
     } break;
     case MQTT_EVENT_ERROR:
       ESP_LOGE(TAG, "MQTT_EVENT_ERROR");

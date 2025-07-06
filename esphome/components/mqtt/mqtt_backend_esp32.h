@@ -267,6 +267,11 @@ class MQTTBackendESP32 final : public MQTTBackend {
   CallbackManager<on_publish_user_callback_t> on_publish_;
   std::queue<Event> mqtt_events_;
 
+  // Store current topic string to handle message chunking properly
+  // When messages are chunked, we need to keep the topic string alive
+  // across multiple MQTT_EVENT_DATA calls until the complete message is processed
+  std::string current_topic_string_;
+
 #if defined(USE_MQTT_IDF_ENQUEUE)
   uint32_t last_dropped_log_time_{0};
   static constexpr uint32_t DROP_LOG_INTERVAL_MS = 10000;  // Log every 10 seconds
