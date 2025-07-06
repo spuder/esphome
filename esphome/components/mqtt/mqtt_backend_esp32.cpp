@@ -112,6 +112,11 @@ void MQTTBackendESP32::loop() {
 
 void MQTTBackendESP32::mqtt_event_handler_(const Event &event) {
   ESP_LOGV(TAG, "Event dispatched from event loop event_id=%d", event.event_id);
+
+  // Add version marker to verify our code is being used
+  if (event.event_id == MQTT_EVENT_DATA) {
+    ESP_LOGD(TAG, "MQTT Backend - Using FIXED handler version 2025-01-06");
+  }
   switch (event.event_id) {
     case MQTT_EVENT_BEFORE_CONNECT:
       ESP_LOGV(TAG, "MQTT_EVENT_BEFORE_CONNECT");
@@ -157,23 +162,46 @@ void MQTTBackendESP32::mqtt_event_handler_(const Event &event) {
 
       const char *topic_ptr = nullptr;
 
+      // Debug logging to track topic handling
+      ESP_LOGD(TAG, "MQTT_EVENT_DATA: event.topic='%s', event.topic.empty()=%s, stored_topic='%s'", event.topic.c_str(),
+               event.topic.empty() ? "true" : "false", this->current_topic_string_.c_str());
+
       if (!event.topic.empty()) {
         // New message or first chunk - update our stored topic string
-        this->current_topic_string_ = event.topic;
-        topic_ptr = this->current_topic_string_.c_str();
+        try {
+          this->current_topic_string_ = event.topic;
+          topic_ptr = this->current_topic_string_.c_str();
+          ESP_LOGD(TAG, "Updated stored topic to: '%s'", topic_ptr);
+        } catch (const std::exception &e) {
+          ESP_LOGE(TAG, "Failed to store topic string: %s", e.what());
+          return;
+        }
       } else if (!this->current_topic_string_.empty()) {
         // Continuation chunk - use the stored topic string from first chunk
         topic_ptr = this->current_topic_string_.c_str();
+        ESP_LOGD(TAG, "Using stored topic: '%s'", topic_ptr);
+      } else {
+        // Neither event topic nor stored topic is available - this shouldn't happen
+        ESP_LOGE(TAG, "No topic available for MQTT message chunk");
+        return;
       }
 
-      ESP_LOGV(TAG, "MQTT_EVENT_DATA %s (chunk %d/%d)", topic_ptr ? topic_ptr : "(null)",
-               event.current_data_offset + event.data.size(), event.total_data_len);
+      // Additional safety check - ensure topic_ptr is valid before calling callback
+      if (topic_ptr == nullptr) {
+        ESP_LOGE(TAG, "topic_ptr is null - cannot process MQTT message");
+        return;
+      }
 
+      ESP_LOGV(TAG, "MQTT_EVENT_DATA %s (chunk %d/%d)", topic_ptr, event.current_data_offset + event.data.size(),
+               event.total_data_len);
+
+      // Call the callback with guaranteed non-null topic pointer
       this->on_message_.call(topic_ptr, event.data.data(), event.data.size(), event.current_data_offset,
                              event.total_data_len);
 
       // Clear the stored topic string after the complete message is processed
       if (event.current_data_offset + event.data.size() >= event.total_data_len) {
+        ESP_LOGD(TAG, "Message complete, clearing stored topic");
         this->current_topic_string_.clear();
       }
     } break;
@@ -201,9 +229,21 @@ void MQTTBackendESP32::mqtt_event_handler(void *handler_args, esp_event_base_t b
                                           void *event_data) {
   MQTTBackendESP32 *instance = static_cast<MQTTBackendESP32 *>(handler_args);
   // queue event to decouple processing
-  if (instance) {
-    auto event = *static_cast<esp_mqtt_event_t *>(event_data);
-    instance->mqtt_events_.emplace(event);
+  if (instance && event_data) {
+    esp_mqtt_event_t *mqtt_event = static_cast<esp_mqtt_event_t *>(event_data);
+
+    // Add some safety logging for debugging
+    ESP_LOGD(TAG, "mqtt_event_handler: event_id=%d, topic=%p, topic_len=%d, data=%p, data_len=%d", mqtt_event->event_id,
+             (void *) mqtt_event->topic, mqtt_event->topic_len, (void *) mqtt_event->data, mqtt_event->data_len);
+
+    try {
+      auto event = Event(*mqtt_event);
+      instance->mqtt_events_.emplace(std::move(event));
+    } catch (const std::exception &e) {
+      ESP_LOGE(TAG, "Failed to create Event object: %s", e.what());
+    } catch (...) {
+      ESP_LOGE(TAG, "Unknown error creating Event object");
+    }
   }
 }
 

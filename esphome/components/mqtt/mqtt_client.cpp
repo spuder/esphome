@@ -50,6 +50,7 @@ MQTTClientComponent::MQTTClientComponent() {
 // Connection
 void MQTTClientComponent::setup() {
   ESP_LOGCONFIG(TAG, "Running setup");
+  ESP_LOGI(TAG, "MQTT Client - Using FIXED callback version 2025-01-06");  // Version marker
   this->mqtt_backend_.set_on_message(
       [this](const char *topic, const char *payload, size_t len, size_t index, size_t total) {
         // Validate input parameters - check for null topic pointer
@@ -58,12 +59,43 @@ void MQTTClientComponent::setup() {
           return;
         }
 
-        // Create topic string safely - the backend now ensures topic pointer is valid
+        // Additional safety checks before string construction
+        ESP_LOGD(TAG, "MQTT callback: topic=%p, payload=%p, len=%zu, index=%zu, total=%zu", (void *) topic,
+                 (void *) payload, len, index, total);
+
+        // Try to safely read first character to validate pointer
+        char first_char;
+        try {
+          first_char = topic[0];
+        } catch (...) {
+          ESP_LOGE(TAG, "Cannot read topic pointer - memory access error");
+          return;
+        }
+
+        // Check if topic points to readable memory by trying to get length
+        size_t topic_len;
+        try {
+          topic_len = strnlen(topic, 512);  // Use strnlen with max length to be safer
+        } catch (...) {
+          ESP_LOGE(TAG, "Cannot determine topic length - memory access error");
+          return;
+        }
+
+        if (topic_len == 0) {
+          ESP_LOGW(TAG, "Topic string has zero length");
+          return;
+        }
+
+        // Create topic string using the safest method possible
         std::string topic_str;
         try {
-          topic_str = topic;  // Safe now that backend manages topic string lifetime
+          topic_str.reserve(topic_len + 1);    // Reserve space to avoid reallocation
+          topic_str.assign(topic, topic_len);  // Use assign with known length
         } catch (const std::exception &e) {
           ESP_LOGE(TAG, "Failed to create topic string: %s", e.what());
+          return;
+        } catch (...) {
+          ESP_LOGE(TAG, "Unknown error creating topic string");
           return;
         }
 
@@ -92,6 +124,7 @@ void MQTTClientComponent::setup() {
 
         // MQTT fully received
         if (len + index == total) {
+          ESP_LOGD(TAG, "Complete MQTT message received for topic: %s", topic_str.c_str());
           this->on_message(topic_str, this->payload_buffer_);
           this->payload_buffer_.clear();
         }

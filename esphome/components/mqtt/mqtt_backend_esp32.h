@@ -35,16 +35,27 @@ struct Event {
   // Any pointer values that are unsafe to keep are converted to safe copies
   Event(const esp_mqtt_event_t &event)
       : event_id(event.event_id),
-        data(event.data, event.data + event.data_len),
+        data(event.data && event.data_len > 0 ? event.data : nullptr,
+             event.data && event.data_len > 0 ? event.data + event.data_len : nullptr),
         total_data_len(event.total_data_len),
         current_data_offset(event.current_data_offset),
-        topic(event.topic, event.topic_len),
+        topic(),  // Initialize empty, will be set safely below
         msg_id(event.msg_id),
         retain(event.retain),
         qos(event.qos),
         dup(event.dup),
         session_present(event.session_present),
-        error_handle(*event.error_handle) {}
+        error_handle(event.error_handle ? *event.error_handle : esp_mqtt_error_codes_t{}) {
+    // Safely construct topic string
+    if (event.topic != nullptr && event.topic_len > 0) {
+      try {
+        topic.assign(event.topic, event.topic_len);
+      } catch (const std::exception &e) {
+        // If topic construction fails, leave it empty
+        topic.clear();
+      }
+    }
+  }
 };
 
 enum MqttQueueTypeT : uint8_t {
