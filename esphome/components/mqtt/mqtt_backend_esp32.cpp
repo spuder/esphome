@@ -155,8 +155,8 @@ void MQTTBackendESP32::mqtt_event_handler_(const Event &event) {
         topic = event.topic;
       }
       ESP_LOGV(TAG, "MQTT_EVENT_DATA %s", topic.c_str());
-      this->on_message_.call(!event.topic.empty() ? topic.c_str() : nullptr, event.data.data(), event.data.size(),
-                             event.current_data_offset, event.total_data_len);
+      this->on_message_.call(topic.c_str(), event.data.data(), event.data.size(), event.current_data_offset,
+                             event.total_data_len);
     } break;
     case MQTT_EVENT_ERROR:
       ESP_LOGE(TAG, "MQTT_EVENT_ERROR");
