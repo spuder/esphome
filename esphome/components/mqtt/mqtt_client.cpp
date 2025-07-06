@@ -54,9 +54,24 @@ void MQTTClientComponent::setup() {
       [this](const char *topic, const char *payload, size_t len, size_t index, size_t total) {
         // Validate input parameters
         if (topic == nullptr) {
-          ESP_LOGW(TAG, "Received MQTT message with null topic");
+          ESP_LOGE(TAG, "Received MQTT message with null topic pointer");
           return;
         }
+
+        // Additional safety check - ensure topic string is readable
+        size_t topic_len;
+        try {
+          topic_len = strlen(topic);
+        } catch (...) {
+          ESP_LOGE(TAG, "Topic pointer is invalid - cannot read string length");
+          return;
+        }
+
+        if (topic_len == 0) {
+          ESP_LOGW(TAG, "Received MQTT message with empty topic string");
+          return;
+        }
+
         if (payload == nullptr && len > 0) {
           ESP_LOGW(TAG, "Received MQTT message with null payload but non-zero length");
           return;
@@ -77,7 +92,21 @@ void MQTTClientComponent::setup() {
 
         // MQTT fully received
         if (len + index == total) {
-          this->on_message(topic, this->payload_buffer_);
+          // Create string safely from topic - double-check before string construction
+          if (topic == nullptr) {
+            ESP_LOGE(TAG, "Topic pointer became null before calling on_message");
+            return;
+          }
+
+          std::string topic_str;
+          try {
+            topic_str.assign(topic, topic_len);  // Use assign with known length to be safer
+          } catch (const std::exception &e) {
+            ESP_LOGE(TAG, "Failed to construct topic string: %s", e.what());
+            return;
+          }
+
+          this->on_message(topic_str, this->payload_buffer_);
           this->payload_buffer_.clear();
         }
       });
