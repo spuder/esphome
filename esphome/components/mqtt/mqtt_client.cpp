@@ -29,7 +29,22 @@ static const char *const TAG = "mqtt";
 
 MQTTClientComponent::MQTTClientComponent() {
   global_mqtt_client = this;
-  this->credentials_.client_id = App.get_name() + "-" + get_mac_address();
+
+  // Safely construct client ID - validate inputs but don't assume defaults
+  std::string device_name = App.get_name();
+  std::string mac_addr = get_mac_address();
+
+  // Only log if actually empty, don't force defaults
+  if (device_name.empty()) {
+    ESP_LOGW(TAG, "Device name is empty for MQTT client ID construction");
+  }
+
+  if (mac_addr.empty()) {
+    ESP_LOGW(TAG, "MAC address is empty for MQTT client ID construction");
+  }
+
+  // Let the system handle empty values naturally - ESPHome may have its own fallback logic
+  this->credentials_.client_id = device_name + "-" + mac_addr;
 }
 
 // Connection
@@ -37,11 +52,28 @@ void MQTTClientComponent::setup() {
   ESP_LOGCONFIG(TAG, "Running setup");
   this->mqtt_backend_.set_on_message(
       [this](const char *topic, const char *payload, size_t len, size_t index, size_t total) {
+        // Validate input parameters
+        if (topic == nullptr) {
+          ESP_LOGW(TAG, "Received MQTT message with null topic");
+          return;
+        }
+        if (payload == nullptr && len > 0) {
+          ESP_LOGW(TAG, "Received MQTT message with null payload but non-zero length");
+          return;
+        }
+
         if (index == 0)
           this->payload_buffer_.reserve(total);
 
         // append new payload, may contain incomplete MQTT message
-        this->payload_buffer_.append(payload, len);
+        if (payload != nullptr && len > 0) {
+          try {
+            this->payload_buffer_.append(payload, len);
+          } catch (const std::exception &e) {
+            ESP_LOGE(TAG, "Failed to append payload to buffer: %s", e.what());
+            return;
+          }
+        }
 
         // MQTT fully received
         if (len + index == total) {
@@ -73,8 +105,13 @@ void MQTTClientComponent::setup() {
         "esphome/discover", [this](const std::string &topic, const std::string &payload) { this->send_device_info_(); },
         2);
 
+    std::string device_name = App.get_name();
+    if (device_name.empty()) {
+      ESP_LOGW(TAG, "Device name is empty for ping topic construction");
+    }
+
     std::string topic = "esphome/ping/";
-    topic.append(App.get_name());
+    topic.append(device_name);  // Let it append empty string if that's what we have
     this->subscribe(
         topic, [this](const std::string &topic, const std::string &payload) { this->send_device_info_(); }, 2);
   }
@@ -88,8 +125,14 @@ void MQTTClientComponent::send_device_info_() {
   if (!this->is_connected() or !this->is_discovery_ip_enabled()) {
     return;
   }
+
+  std::string device_name = App.get_name();
+  if (device_name.empty()) {
+    ESP_LOGW(TAG, "Device name is empty for discovery topic construction");
+  }
+
   std::string topic = "esphome/discover/";
-  topic.append(App.get_name());
+  topic.append(device_name);  // Let it append empty string if that's what we have
 
   this->publish_json(
       topic,
@@ -441,6 +484,18 @@ void MQTTClientComponent::subscribe(const std::string &topic, mqtt_callback_t ca
 
 void MQTTClientComponent::subscribe_json(const std::string &topic, const mqtt_json_callback_t &callback, uint8_t qos) {
   auto f = [callback](const std::string &topic, const std::string &payload) {
+    // Validate topic is not empty
+    if (topic.empty()) {
+      ESP_LOGW(TAG, "Received JSON MQTT message with empty topic");
+      return;
+    }
+
+    // Validate payload is not empty for JSON parsing
+    if (payload.empty()) {
+      ESP_LOGW(TAG, "Received JSON MQTT message with empty payload for topic '%s'", topic.c_str());
+      return;
+    }
+
     json::parse_json(payload, [topic, callback](JsonObject root) -> bool {
       callback(topic, root);
       return true;
@@ -516,7 +571,23 @@ bool MQTTClientComponent::publish(const MQTTMessage &message) {
 }
 bool MQTTClientComponent::publish_json(const std::string &topic, const json::json_build_t &f, uint8_t qos,
                                        bool retain) {
-  std::string message = json::build_json(f);
+  if (topic.empty()) {
+    ESP_LOGW(TAG, "Cannot publish JSON to empty topic");
+    return false;
+  }
+
+  std::string message;
+  try {
+    message = json::build_json(f);
+  } catch (const std::exception &e) {
+    ESP_LOGE(TAG, "Failed to build JSON message: %s", e.what());
+    return false;
+  }
+
+  if (message.empty()) {
+    ESP_LOGW(TAG, "Generated empty JSON message for topic '%s'", topic.c_str());
+  }
+
   return this->publish(topic, message, qos, retain);
 }
 
@@ -549,6 +620,11 @@ void MQTTClientComponent::disable() {
  * @return true if the subscription topic matches the message topic, false otherwise.
  */
 static bool topic_match(const char *message, const char *subscription, bool is_normal, bool past_separator) {
+  // Null pointer validation
+  if (message == nullptr || subscription == nullptr) {
+    return false;
+  }
+
   // Reached end of both strings at the same time, this means we have a successful match
   if (*message == '\0' && *subscription == '\0')
     return true;
@@ -591,10 +667,21 @@ static bool topic_match(const char *message, const char *subscription, bool is_n
 }
 
 static bool topic_match(const char *message, const char *subscription) {
+  // Null pointer validation
+  if (message == nullptr || subscription == nullptr) {
+    return false;
+  }
+
   return topic_match(message, subscription, *message != '\0' && *message != '$', false);
 }
 
 void MQTTClientComponent::on_message(const std::string &topic, const std::string &payload) {
+  // Validate topic is not empty - MQTT spec requires non-empty topics
+  if (topic.empty()) {
+    ESP_LOGW(TAG, "Received MQTT message with empty topic");
+    return;
+  }
+
 #ifdef USE_ESP8266
   // on ESP8266, this is called in lwIP/AsyncTCP task; some components do not like running
   // from a different task.
@@ -620,7 +707,11 @@ void MQTTClientComponent::set_log_message_template(MQTTMessage &&message) { this
 const MQTTDiscoveryInfo &MQTTClientComponent::get_discovery_info() const { return this->discovery_info_; }
 void MQTTClientComponent::set_topic_prefix(const std::string &topic_prefix, const std::string &check_topic_prefix) {
   if (App.is_name_add_mac_suffix_enabled() && (topic_prefix == check_topic_prefix)) {
-    this->topic_prefix_ = str_sanitize(App.get_name());
+    std::string device_name = App.get_name();
+    if (device_name.empty()) {
+      ESP_LOGW(TAG, "Device name is empty for topic prefix construction");
+    }
+    this->topic_prefix_ = str_sanitize(device_name);  // str_sanitize should handle empty strings
   } else {
     this->topic_prefix_ = topic_prefix;
   }
