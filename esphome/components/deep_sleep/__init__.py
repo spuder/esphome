@@ -1,8 +1,20 @@
+from esphome import automation, pins
 import esphome.codegen as cg
 from esphome.components import time
+from esphome.components.esp32 import get_esp32_variant
+from esphome.components.esp32.const import (
+    VARIANT_ESP32,
+    VARIANT_ESP32C2,
+    VARIANT_ESP32C3,
+    VARIANT_ESP32C6,
+    VARIANT_ESP32H2,
+    VARIANT_ESP32S2,
+    VARIANT_ESP32S3,
+)
+from esphome.config_helpers import filter_source_files_from_platform
 import esphome.config_validation as cv
-from esphome import pins, automation
 from esphome.const import (
+    CONF_DEFAULT,
     CONF_HOUR,
     CONF_ID,
     CONF_MINUTE,
@@ -16,17 +28,7 @@ from esphome.const import (
     CONF_WAKEUP_PIN,
     PLATFORM_ESP32,
     PLATFORM_ESP8266,
-)
-
-from esphome.components.esp32 import get_esp32_variant
-from esphome.components.esp32.const import (
-    VARIANT_ESP32,
-    VARIANT_ESP32C3,
-    VARIANT_ESP32S2,
-    VARIANT_ESP32S3,
-    VARIANT_ESP32C2,
-    VARIANT_ESP32C6,
-    VARIANT_ESP32H2,
+    PlatformFramework,
 )
 
 WAKEUP_PINS = {
@@ -154,7 +156,6 @@ WakeupCauseToRunDuration = deep_sleep_ns.struct("WakeupCauseToRunDuration")
 CONF_WAKEUP_PIN_MODE = "wakeup_pin_mode"
 CONF_ESP32_EXT1_WAKEUP = "esp32_ext1_wakeup"
 CONF_TOUCH_WAKEUP = "touch_wakeup"
-CONF_DEFAULT = "default"
 CONF_GPIO_WAKEUP_REASON = "gpio_wakeup_reason"
 CONF_TOUCH_WAKEUP_REASON = "touch_wakeup_reason"
 CONF_UNTIL = "until"
@@ -314,3 +315,14 @@ async def deep_sleep_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
     return var
+
+
+FILTER_SOURCE_FILES = filter_source_files_from_platform(
+    {
+        "deep_sleep_esp32.cpp": {
+            PlatformFramework.ESP32_ARDUINO,
+            PlatformFramework.ESP32_IDF,
+        },
+        "deep_sleep_esp8266.cpp": {PlatformFramework.ESP8266_ARDUINO},
+    }
+)

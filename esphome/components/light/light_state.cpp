@@ -1,6 +1,7 @@
 #include "esphome/core/log.h"
-#include "light_state.h"
+
 #include "light_output.h"
+#include "light_state.h"
 #include "transformers.h"
 
 namespace esphome {
@@ -16,23 +17,8 @@ LightCall LightState::turn_off() { return this->make_call().set_state(false); }
 LightCall LightState::toggle() { return this->make_call().set_state(!this->remote_values.is_on()); }
 LightCall LightState::make_call() { return LightCall(this); }
 
-struct LightStateRTCState {
-  ColorMode color_mode{ColorMode::UNKNOWN};
-  bool state{false};
-  float brightness{1.0f};
-  float color_brightness{1.0f};
-  float red{1.0f};
-  float green{1.0f};
-  float blue{1.0f};
-  float white{1.0f};
-  float color_temp{1.0f};
-  float cold_white{1.0f};
-  float warm_white{1.0f};
-  uint32_t effect{0};
-};
-
 void LightState::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up light '%s'...", this->get_name().c_str());
+  ESP_LOGCONFIG(TAG, "Running setup for '%s'", this->get_name().c_str());
 
   this->output_->setup_state(this);
   for (auto *effect : this->effects_) {
@@ -48,6 +34,9 @@ void LightState::setup() {
 
   auto call = this->make_call();
   LightStateRTCState recovered{};
+  if (this->initial_state_.has_value()) {
+    recovered = *this->initial_state_;
+  }
   switch (this->restore_mode_) {
     case LIGHT_RESTORE_DEFAULT_OFF:
     case LIGHT_RESTORE_DEFAULT_ON:
@@ -102,12 +91,16 @@ void LightState::setup() {
 void LightState::dump_config() {
   ESP_LOGCONFIG(TAG, "Light '%s'", this->get_name().c_str());
   if (this->get_traits().supports_color_capability(ColorCapability::BRIGHTNESS)) {
-    ESP_LOGCONFIG(TAG, "  Default Transition Length: %.1fs", this->default_transition_length_ / 1e3f);
-    ESP_LOGCONFIG(TAG, "  Gamma Correct: %.2f", this->gamma_correct_);
+    ESP_LOGCONFIG(TAG,
+                  "  Default Transition Length: %.1fs\n"
+                  "  Gamma Correct: %.2f",
+                  this->default_transition_length_ / 1e3f, this->gamma_correct_);
   }
   if (this->get_traits().supports_color_capability(ColorCapability::COLOR_TEMPERATURE)) {
-    ESP_LOGCONFIG(TAG, "  Min Mireds: %.1f", this->get_traits().get_min_mireds());
-    ESP_LOGCONFIG(TAG, "  Max Mireds: %.1f", this->get_traits().get_max_mireds());
+    ESP_LOGCONFIG(TAG,
+                  "  Min Mireds: %.1f\n"
+                  "  Max Mireds: %.1f",
+                  this->get_traits().get_min_mireds(), this->get_traits().get_max_mireds());
   }
 }
 void LightState::loop() {
@@ -175,6 +168,7 @@ void LightState::set_flash_transition_length(uint32_t flash_transition_length) {
 uint32_t LightState::get_flash_transition_length() const { return this->flash_transition_length_; }
 void LightState::set_gamma_correct(float gamma_correct) { this->gamma_correct_ = gamma_correct; }
 void LightState::set_restore_mode(LightRestoreMode restore_mode) { this->restore_mode_ = restore_mode; }
+void LightState::set_initial_state(const LightStateRTCState &initial_state) { this->initial_state_ = initial_state; }
 bool LightState::supports_effects() { return !this->effects_.empty(); }
 const std::vector<LightEffect *> &LightState::get_effects() const { return this->effects_; }
 void LightState::add_effects(const std::vector<LightEffect *> &effects) {

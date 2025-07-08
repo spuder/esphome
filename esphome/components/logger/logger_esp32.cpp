@@ -10,16 +10,20 @@
 
 #ifdef USE_LOGGER_USB_SERIAL_JTAG
 #include <driver/usb_serial_jtag.h>
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
 #include <esp_vfs_dev.h>
 #include <esp_vfs_usb_serial_jtag.h>
+#else
+#include <driver/usb_serial_jtag_vfs.h>
+#endif
 #endif
 
-#include "freertos/FreeRTOS.h"
 #include "esp_idf_version.h"
+#include "freertos/FreeRTOS.h"
 
+#include <fcntl.h>
 #include <cstdint>
 #include <cstdio>
-#include <fcntl.h>
 
 #endif  // USE_ESP_IDF
 
@@ -36,10 +40,17 @@ static const char *const TAG = "logger";
 static void init_usb_serial_jtag_() {
   setvbuf(stdin, NULL, _IONBF, 0);  // Disable buffering on stdin
 
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
   // Minicom, screen, idf_monitor send CR when ENTER key is pressed
   esp_vfs_dev_usb_serial_jtag_set_rx_line_endings(ESP_LINE_ENDINGS_CR);
   // Move the caret to the beginning of the next line on '\n'
   esp_vfs_dev_usb_serial_jtag_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
+#else
+  // Minicom, screen, idf_monitor send CR when ENTER key is pressed
+  usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CR);
+  // Move the caret to the beginning of the next line on '\n'
+  usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
+#endif
 
   // Enable non-blocking mode on stdin and stdout
   fcntl(fileno(stdout), F_SETFL, 0);
@@ -57,7 +68,11 @@ static void init_usb_serial_jtag_() {
   }
 
   // Tell vfs to use usb-serial-jtag driver
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
   esp_vfs_usb_serial_jtag_use_driver();
+#else
+  usb_serial_jtag_vfs_use_driver();
+#endif
 }
 #endif
 
@@ -68,9 +83,7 @@ void init_uart(uart_port_t uart_num, uint32_t baud_rate, int tx_buffer_size) {
   uart_config.parity = UART_PARITY_DISABLE;
   uart_config.stop_bits = UART_STOP_BITS_1;
   uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   uart_config.source_clk = UART_SCLK_DEFAULT;
-#endif
   uart_param_config(uart_num, &uart_config);
   const int uart_buffer_size = tx_buffer_size;
   // Install UART driver using an event queue here
@@ -159,11 +172,11 @@ void Logger::pre_setup() {
 #ifdef USE_ESP_IDF
 void HOT Logger::write_msg_(const char *msg) {
   if (
-#if defined(USE_ESP32_VARIANT_ESP32S2)
+#if defined(USE_LOGGER_USB_CDC) && !defined(USE_LOGGER_USB_SERIAL_JTAG)
       this->uart_ == UART_SELECTION_USB_CDC
-#elif defined(USE_ESP32_VARIANT_ESP32C3) || defined(USE_ESP32_VARIANT_ESP32C6) || defined(USE_ESP32_VARIANT_ESP32H2)
+#elif defined(USE_LOGGER_USB_SERIAL_JTAG) && !defined(USE_LOGGER_USB_CDC)
       this->uart_ == UART_SELECTION_USB_SERIAL_JTAG
-#elif defined(USE_ESP32_VARIANT_ESP32S3)
+#elif defined(USE_LOGGER_USB_CDC) && defined(USE_LOGGER_USB_SERIAL_JTAG)
       this->uart_ == UART_SELECTION_USB_CDC || this->uart_ == UART_SELECTION_USB_SERIAL_JTAG
 #else
       /* DISABLES CODE */ (false)  // NOLINT
@@ -171,7 +184,9 @@ void HOT Logger::write_msg_(const char *msg) {
   ) {
     puts(msg);
   } else {
-    uart_write_bytes(this->uart_num_, msg, strlen(msg));
+    // Use tx_buffer_at_ if msg points to tx_buffer_, otherwise fall back to strlen
+    size_t len = (msg == this->tx_buffer_) ? this->tx_buffer_at_ : strlen(msg);
+    uart_write_bytes(this->uart_num_, msg, len);
     uart_write_bytes(this->uart_num_, "\n", 1);
   }
 }

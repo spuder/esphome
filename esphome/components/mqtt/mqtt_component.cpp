@@ -16,6 +16,8 @@ static const char *const TAG = "mqtt.component";
 
 void MQTTComponent::set_qos(uint8_t qos) { this->qos_ = qos; }
 
+void MQTTComponent::set_subscribe_qos(uint8_t qos) { this->subscribe_qos_ = qos; }
+
 void MQTTComponent::set_retain(bool retain) { this->retain_ = retain; }
 
 std::string MQTTComponent::get_discovery_topic_(const MQTTDiscoveryInfo &discovery_info) const {
@@ -62,11 +64,11 @@ bool MQTTComponent::send_discovery_() {
   const MQTTDiscoveryInfo &discovery_info = global_mqtt_client->get_discovery_info();
 
   if (discovery_info.clean) {
-    ESP_LOGV(TAG, "'%s': Cleaning discovery...", this->friendly_name().c_str());
+    ESP_LOGV(TAG, "'%s': Cleaning discovery", this->friendly_name().c_str());
     return global_mqtt_client->publish(this->get_discovery_topic_(discovery_info), "", 0, this->qos_, true);
   }
 
-  ESP_LOGV(TAG, "'%s': Sending discovery...", this->friendly_name().c_str());
+  ESP_LOGV(TAG, "'%s': Sending discovery", this->friendly_name().c_str());
 
   return global_mqtt_client->publish_json(
       this->get_discovery_topic_(discovery_info),
@@ -76,6 +78,10 @@ bool MQTTComponent::send_discovery_() {
         config.command_topic = true;
 
         this->send_discovery(root, config);
+        // Set subscription QoS (default is 0)
+        if (this->subscribe_qos_ != 0) {
+          root[MQTT_QOS] = this->subscribe_qos_;
+        }
 
         // Fields from EntityBase
         if (this->get_entity()->has_own_name()) {
@@ -147,7 +153,7 @@ bool MQTTComponent::send_discovery_() {
         if (node_friendly_name.empty()) {
           node_friendly_name = node_name;
         }
-        const std::string &node_area = App.get_area();
+        std::string node_area = App.get_area();
 
         JsonObject device_info = root.createNestedObject(MQTT_DEVICE);
         const auto mac = get_mac_address();

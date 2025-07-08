@@ -16,7 +16,8 @@ from .const import KEY_HOST
 from .gpio import host_pin_to_code  # noqa
 
 CODEOWNERS = ["@esphome/core", "@clydebarrow"]
-AUTO_LOAD = ["network"]
+AUTO_LOAD = ["network", "preferences"]
+IS_TARGET_PLATFORM = True
 
 
 def set_core_data(config):
@@ -40,6 +41,7 @@ CONFIG_SCHEMA = cv.All(
 async def to_code(config):
     cg.add_build_flag("-DUSE_HOST")
     cg.add_define("USE_ESPHOME_HOST_MAC_ADDRESS", config[CONF_MAC_ADDRESS].parts)
-    cg.add_build_flag("-std=c++17")
+    cg.add_build_flag("-std=gnu++20")
     cg.add_define("ESPHOME_BOARD", "host")
     cg.add_platformio_option("platform", "platformio/native")
+    cg.add_platformio_option("lib_ldf_mode", "off")
